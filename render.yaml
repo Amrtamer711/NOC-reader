@@ -30,7 +30,7 @@ services:
     name: noc-expiry-checker
     schedule: "0 5 * * *"  # Run daily at 5 AM UTC (9 AM UAE time)
     buildCommand: echo "No build required"
-    command: >
+    startCommand: >
       curl -fsS -X POST https://noc-reader-bot.onrender.com/cron/check-expiry
       -H "Authorization: Bearer ${CRON_SECRET}"
       -H "Content-Type: application/json"
