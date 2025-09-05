@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import asyncio
-from datetime import datetime, date, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -26,7 +26,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('noc_reader_bot.log'),
+        logging.FileHandler(config.LOG_FILE),
         logging.StreamHandler()
     ]
 )
@@ -134,20 +134,6 @@ async def save_to_database(data: Dict[str, Any], document_path: Optional[str] = 
         return 0
 
 # ================= Date parsing utilities =================
-def _parse_date_yyyy_mm_dd(value: str) -> Optional[date]:
-    if not value or not isinstance(value, str):
-        return None
-    try:
-        return datetime.strptime(value.strip(), '%Y-%m-%d').date()
-    except Exception:
-        # Try common alternatives
-        for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d %b %Y', '%d %B %Y'):
-            try:
-                return datetime.strptime(value.strip(), fmt).date()
-            except Exception:
-                continue
-    return None
-
 # ================= Parsing with OpenAI =================
 async def parse_noc_with_ai(file_path: str) -> Dict[str, Any]:
     """Parse a NOC PDF using OpenAI Responses API and extract the key fields."""
@@ -256,7 +242,7 @@ def append_to_history(user_id: str, role: str, content: str) -> None:
     if user_id not in user_history:
         user_history[user_id] = []
     user_history[user_id].append({"role": role, "content": content})
-    if len(user_history[user_id]) > 20:
+    if len(user_history[user_id]) > config.USER_HISTORY_LIMIT:
         user_history[user_id] = user_history[user_id][-20:]
 
 def render_summary(noc_data: Dict[str, Any]) -> str:
@@ -319,13 +305,13 @@ async def llm_confirmation_decision(user_id: str, user_text: str, pending: Dict[
     )
 
     # Build conversation with short recent history
-    history = user_history.get(user_id, [])[-8:]
+    history = user_history.get(user_id, [])[-config.LLM_HISTORY_LIMIT:]
     messages = [{"role": "system", "content": system_prompt}] + history + [
         {"role": "user", "content": pending_text}
     ]
 
     res = await client.responses.create(
-        model='gpt-5',
+        model=config.OPENAI_MODEL,
         input=messages,
         text={
             'format': {
@@ -439,6 +425,40 @@ async def llm_admin_confirmation_decision(user_id: str, user_text: str, pending_
     
     return parsed
 
+# ================= Utility functions =================
+def cleanup_file(file_path: Optional[str]) -> None:
+    """Safely remove a file if it exists."""
+    if file_path:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+
+async def upload_file_to_slack(slack_client: AsyncWebClient, channel: str, file_data: bytes, 
+                              filename: str, title: str, initial_comment: str = "") -> bool:
+    """Upload a file to Slack channel."""
+    import tempfile
+    temp_file = None
+    try:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
+        temp_file.write(file_data)
+        temp_file.close()
+        
+        response = await slack_client.files_upload_v2(
+            channel=channel,
+            file=temp_file.name,
+            filename=filename,
+            title=title,
+            initial_comment=initial_comment
+        )
+        return response.get('ok', False)
+    except Exception as e:
+        logger.error(f"Failed to upload file to Slack: {e}")
+        return False
+    finally:
+        if temp_file:
+            cleanup_file(temp_file.name)
+
 # ================= Slack helpers =================
 async def download_slack_file(file_info: Dict[str, Any]) -> str:
     """Download a Slack file locally and return the path."""
@@ -462,10 +482,10 @@ async def download_slack_file(file_info: Dict[str, Any]) -> str:
         if not file_url:
             raise RuntimeError('No downloadable URL for file')
 
-        os.makedirs('./uploads', exist_ok=True)
+        os.makedirs(config.UPLOAD_DIR, exist_ok=True)
         safe_name = ''.join(ch if ch.isalnum() or ch in ('-', '_', '.') else '_' for ch in file_name)
         timestamp = datetime.now(UAE_TZ).strftime('%Y%m%d_%H%M%S')
-        local_path = f'./uploads/noc_{timestamp}_{safe_name}'
+        local_path = os.path.join(config.UPLOAD_DIR, f'noc_{timestamp}_{safe_name}')
 
         headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
         resp = requests.get(file_url, headers=headers)
@@ -558,11 +578,7 @@ async def handle_slack_message(channel: str, user_id: str, text: str, files: Opt
             record_id = await save_to_database(pending, document_path)
             
             # Clean up document file after saving
-            if document_path:
-                try:
-                    os.remove(document_path)
-                except Exception:
-                    pass
+            cleanup_file(document_path)
             
             if record_id:
                 reply = f"Saved. Record ID: #{record_id}. NOC: `{pending.get('noc_number','')}`"
@@ -575,11 +591,7 @@ async def handle_slack_message(channel: str, user_id: str, text: str, files: Opt
         elif action == 'cancel':
             # Clean up document file on cancel
             document_path = pending.pop('_document_path', None)
-            if document_path:
-                try:
-                    os.remove(document_path)
-                except Exception:
-                    pass
+            cleanup_file(document_path)
             
             pending_confirmations.pop(user_id, None)
             reply = message or 'Cancelled. No data was saved.'
@@ -669,7 +681,7 @@ IMPORTANT:
 - When user wants statistics/summary, use get_summary tool
 """
     
-    history = user_history.get(user_id, [])[-8:]
+    history = user_history.get(user_id, [])[-config.LLM_HISTORY_LIMIT:]
     messages = ([{"role": "system", "content": system_prompt}] + history +
                 [{"role": "user", "content": user_text or ' '}])
     
@@ -770,22 +782,13 @@ IMPORTANT:
                         # Get NOC details
                         noc_details = await asyncio.to_thread(db.get_noc_by_number, noc_number)
                         
-                        # Create temp file and upload
-                        import tempfile
-                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-                        temp_file.write(document_data)
-                        temp_file.close()
-                        
                         # Upload to Slack
-                        await slack_client.files_upload_v2(
-                            channel=channel,
-                            file=open(temp_file.name, 'rb'),
-                            filename=filename,
-                            title=f'NOC {noc_number}',
-                            initial_comment=f"**NOC Details:**\n• Project: {noc_details.get('project_name', 'N/A') if noc_details else 'N/A'}\n• Type: {noc_details.get('noc_type', 'N/A') if noc_details else 'N/A'}\n• Issue Date: {noc_details.get('issue_date', 'N/A') if noc_details else 'N/A'}\n• Validity End Date: {noc_details.get('validity_end_date', 'N/A') if noc_details else 'N/A'}"
-                        )
+                        initial_comment = f"**NOC Details:**\n• Project: {noc_details.get('project_name', 'N/A') if noc_details else 'N/A'}\n• Type: {noc_details.get('noc_type', 'N/A') if noc_details else 'N/A'}\n• Issue Date: {noc_details.get('issue_date', 'N/A') if noc_details else 'N/A'}\n• Validity End Date: {noc_details.get('validity_end_date', 'N/A') if noc_details else 'N/A'}"
                         
-                        os.unlink(temp_file.name)
+                        await upload_file_to_slack(
+                            slack_client, channel, document_data, 
+                            filename, f'NOC {noc_number}', initial_comment
+                        )
                         return f"✅ Found and uploaded NOC `{noc_number}`"
                     else:
                         return f"❌ Could not find document for NOC `{noc_number}`. It may not have a stored document or doesn't exist."
@@ -796,15 +799,16 @@ IMPORTANT:
                     
                     # Upload to Slack
                     with open(excel_path, 'rb') as f:
-                        await slack_client.files_upload_v2(
-                            channel=channel,
-                            file=f,
-                            filename=f'noc_export_{datetime.now(UAE_TZ).strftime("%Y%m%d_%H%M%S")}.xlsx',
-                            title='NOC Database Export',
-                            initial_comment='Here is the complete NOC database export.'
-                        )
+                        excel_data = f.read()
                     
-                    os.unlink(excel_path)
+                    await upload_file_to_slack(
+                        slack_client, channel, excel_data,
+                        f'noc_export_{datetime.now(UAE_TZ).strftime("%Y%m%d_%H%M%S")}.xlsx',
+                        'NOC Database Export',
+                        'Here is the complete NOC database export.'
+                    )
+                    
+                    cleanup_file(excel_path)
                     
                     total = len(await asyncio.to_thread(db.get_all_noc_extractions))
                     return f"✅ Database exported successfully. Total records: {total}"
@@ -911,22 +915,10 @@ async def cron_check_expiry(request: Request):
                         try:
                             if doc_result:
                                 document_data, filename = doc_result
-                                # Create temp file
-                                import tempfile
-                                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-                                temp_file.write(document_data)
-                                temp_file.close()
-                                
-                                # Upload to Slack
-                                with open(temp_file.name, 'rb') as f:
-                                    await slack_client.files_upload_v2(
-                                        channel=channel,
-                                        file=f,
-                                        filename=filename,
-                                        title=f'Archived NOC {noc_number}',
-                                        initial_comment=msg
-                                    )
-                                os.unlink(temp_file.name)
+                                await upload_file_to_slack(
+                                    slack_client, channel, document_data,
+                                    filename, f'Archived NOC {noc_number}', msg
+                                )
                             else:
                                 await slack_client.chat_postMessage(channel=channel, text=msg)
                             notification_sent = True
@@ -973,22 +965,10 @@ async def cron_check_expiry(request: Request):
                 try:
                     if doc_result:
                         document_data, filename = doc_result
-                        # Create temp file
-                        import tempfile
-                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-                        temp_file.write(document_data)
-                        temp_file.close()
-                        
-                        # Upload to Slack
-                        with open(temp_file.name, 'rb') as f:
-                            await slack_client.files_upload_v2(
-                                channel=channel,
-                                file=f,
-                                filename=filename,
-                                title=f'NOC {noc_number} - Expiring Soon',
-                                initial_comment=msg
-                            )
-                        os.unlink(temp_file.name)
+                        await upload_file_to_slack(
+                            slack_client, channel, document_data,
+                            filename, f'NOC {noc_number} - Expiring Soon', msg
+                        )
                     else:
                         await slack_client.chat_postMessage(channel=channel, text=msg)
                     notification_sent = True

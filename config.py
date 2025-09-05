@@ -47,3 +47,9 @@ OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
 EXPIRY_NOTIFICATION_DAYS = int(os.getenv('EXPIRY_NOTIFICATION_DAYS', '14'))
 MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', '0'))  # 0 means no limit
 API_PORT = int(os.getenv('API_PORT', '3000'))
+
+# Additional settings
+LOG_FILE = os.getenv('LOG_FILE', 'noc_reader_bot.log')
+USER_HISTORY_LIMIT = int(os.getenv('USER_HISTORY_LIMIT', '20'))
+LLM_HISTORY_LIMIT = int(os.getenv('LLM_HISTORY_LIMIT', '8'))
+UPLOAD_DIR = os.getenv('UPLOAD_DIR', './uploads')
