@@ -264,7 +264,7 @@ def get_noc_document(noc_number: str) -> Optional[Tuple[bytes, str]]:
 
 def archive_expired_nocs() -> List[str]:
     """Move expired NOCs to history database. Returns list of archived NOC numbers."""
-    today = datetime.now().date().isoformat()
+    today = datetime.now().date()
     archived = []
     
     conn_current = _connect(CURRENT_DB_PATH)
@@ -276,12 +276,21 @@ def archive_expired_nocs() -> List[str]:
         cursor = conn_current.execute(
             """
             SELECT * FROM noc_extractions 
-            WHERE validity_end_date != '' 
-            AND validity_end_date < ?
-            """,
-            (today,)
+            WHERE validity_end_date != ''
+            """
         )
-        expired_nocs = [dict(row) for row in cursor.fetchall()]
+        all_nocs = [dict(row) for row in cursor.fetchall()]
+        
+        # Filter expired NOCs by parsing DD-MM-YYYY dates
+        expired_nocs = []
+        for noc in all_nocs:
+            try:
+                validity_date = datetime.strptime(noc['validity_end_date'], '%d-%m-%Y').date()
+                if validity_date < today:
+                    expired_nocs.append(noc)
+            except ValueError:
+                # Skip if date format is invalid
+                continue
         
         if expired_nocs:
             conn_current.execute("BEGIN")
@@ -374,20 +383,30 @@ def get_expiring_nocs(days_ahead: int = 14) -> List[Dict[str, Any]]:
         conn.row_factory = sqlite3.Row
         # Calculate date range
         today = datetime.now().date()
-        future_date = (today + timedelta(days=days_ahead)).isoformat()
+        future_date = today + timedelta(days=days_ahead)
         
         cursor = conn.execute(
             """
             SELECT * FROM noc_extractions 
-            WHERE validity_end_date != '' 
-            AND validity_end_date >= date('now')
-            AND validity_end_date <= ?
-            ORDER BY validity_end_date ASC
-            """,
-            (future_date,)
+            WHERE validity_end_date != ''
+            """
         )
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        all_nocs = [dict(row) for row in cursor.fetchall()]
+        
+        # Filter NOCs expiring within the specified days
+        expiring_nocs = []
+        for noc in all_nocs:
+            try:
+                validity_date = datetime.strptime(noc['validity_end_date'], '%d-%m-%Y').date()
+                if today <= validity_date <= future_date:
+                    expiring_nocs.append(noc)
+            except ValueError:
+                # Skip if date format is invalid
+                continue
+        
+        # Sort by validity date
+        expiring_nocs.sort(key=lambda x: datetime.strptime(x['validity_end_date'], '%d-%m-%Y'))
+        return expiring_nocs
     except Exception as e:
         logger.error(f"[DB] Error getting expiring NOCs: {e}")
         return []

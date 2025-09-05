@@ -49,6 +49,7 @@ noc_notified_cache.json
 
 # Credentials
 routes-key.json
+admin_config.json
 admin_config.json.local
 
 # Temporary files

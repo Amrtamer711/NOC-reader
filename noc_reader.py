@@ -156,13 +156,13 @@ async def parse_noc_with_ai(file_path: str) -> Dict[str, Any]:
         '\nExtract ONLY the following fields from the attached NOC PDF and return a STRICT JSON object:'
         '\n- noc_number: The NOC reference number or ID (choose the most prominent/official if multiple are present)'
         '\n- project_name: The official project name/title associated with the NOC (if multiple, pick the one tied to the NOC reference)'
-        '\n- issue_date: The date the NOC was issued (prefer issuance over expiry/renewal; format as YYYY-MM-DD when possible)'
+        '\n- issue_date: The date the NOC was issued (prefer issuance over expiry/renewal; format as DD-MM-YYYY)'
         '\n- noc_type: The NOC type (e.g., company formation, activity change, etc.; keep it short and specific)'
-        '\n- validity_end_date: The validity end date (date to/expiry), if present (format as YYYY-MM-DD when possible)'
+        '\n- validity_end_date: The validity end date (date to/expiry), if present (format as DD-MM-YYYY)'
         "\n- comments: Brief human remarks or notes present in the document. EXCLUDE procedural instructions (e.g., 'bring original', 'pay fee', 'submit within 7 days')."
         '\nIf any field is not present, return an empty string for it.'
         '\nDo not include any commentary outside of the JSON output.'
-        '\nNormalize values: trim labels/punctuation, and standardize dates to YYYY-MM-DD when possible.'
+        '\nNormalize values: trim labels/punctuation, and standardize dates to DD-MM-YYYY when possible.'
     )
 
     try:
@@ -199,9 +199,9 @@ async def parse_noc_with_ai(file_path: str) -> Dict[str, Any]:
                         'properties': {
                             'noc_number': {'type': 'string'},
                             'project_name': {'type': 'string'},
-                            'issue_date': {'type': 'string', 'description': 'YYYY-MM-DD when possible'},
+                            'issue_date': {'type': 'string', 'description': 'DD-MM-YYYY when possible'},
                             'noc_type': {'type': 'string'},
-                            'validity_end_date': {'type': 'string', 'description': 'YYYY-MM-DD when possible'},
+                            'validity_end_date': {'type': 'string', 'description': 'DD-MM-YYYY when possible'},
                             'comments': {'type': 'string'},
                         },
                         'required': ['noc_number', 'project_name', 'issue_date', 'noc_type', 'validity_end_date', 'comments'],
@@ -258,7 +258,7 @@ def render_summary(noc_data: Dict[str, Any]) -> str:
 def format_noc_results(noc_data: Dict[str, Any]) -> str:
     return (
         "**NOC Extraction Result**\n\n" + render_summary(noc_data) +
-        "Reply 'yes' to confirm saving, or provide corrections (e.g., 'Change date to 2024-05-01' or 'NOC number is 123'), or say 'cancel'."
+        "Reply 'yes' to confirm saving, or provide corrections (e.g., 'Change date to 01-05-2024' or 'NOC number is 123'), or say 'cancel'."
     )
 
 def render_admin_summary(admin_data: Dict[str, Any]) -> str:
@@ -932,7 +932,7 @@ async def cron_check_expiry(request: Request):
         expiring = await asyncio.to_thread(db.get_expiring_nocs, config.EXPIRY_NOTIFICATION_DAYS)
         notified = []
         
-        today_str = datetime.now().date().isoformat()
+        today_str = datetime.now().date().strftime('%d-%m-%Y')
         admin_channels = permissions.get_admin_notification_channels()
         
         if not admin_channels:
@@ -948,7 +948,7 @@ async def cron_check_expiry(request: Request):
             
             project_name = noc.get('project_name', 'N/A')
             validity_end = noc.get('validity_end_date', '')
-            days_left = (datetime.strptime(validity_end, '%Y-%m-%d').date() - datetime.now().date()).days
+            days_left = (datetime.strptime(validity_end, '%d-%m-%Y').date() - datetime.now().date()).days
             
             msg = (
                 f"⚠️ *NOC Expiring Soon*\n"
