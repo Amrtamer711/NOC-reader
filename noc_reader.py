@@ -1074,9 +1074,11 @@ async def slack_commands(request: Request):
     # Verify request signature
     timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
     signature = request.headers.get('X-Slack-Signature', '')
-    body_bytes = await request.body()
     
-    if not signature_verifier.is_valid(body_bytes.decode(), timestamp, signature):
+    # Reconstruct the body from form data for signature verification
+    body_str = "&".join([f"{key}={value}" for key, value in form_data.items()])
+    
+    if not signature_verifier.is_valid(body_str, timestamp, signature):
         return JSONResponse({'error': 'Invalid signature'}, status_code=403)
     
     if command == "/my_ids":
