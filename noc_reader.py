@@ -251,7 +251,7 @@ def render_summary(noc_data: Dict[str, Any]) -> str:
         f"• Project Name: `{noc_data.get('project_name','') or 'N/A'}`\n"
         f"• Issue Date: `{noc_data.get('issue_date','') or 'N/A'}`\n"
         f"• NOC Type: `{noc_data.get('noc_type','') or 'N/A'}`\n"
-        f"• Validity End Date: `{noc_data.get('validity_end_date','') or 'N/A'}`\n"
+        f"• Validity End Date: `{noc_data.get('validity_end_date','') or 'N/A'}`\n" +
         (f"• Comments: {noc_data.get('comments','')[:300]}\n" if noc_data.get('comments') else '')
     )
 
