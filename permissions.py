@@ -8,7 +8,8 @@ from slack_sdk.web.async_client import AsyncWebClient
 logger = logging.getLogger(__name__)
 
 # Admin config path
-ADMIN_CONFIG_FILE = Path(__file__).parent / "admin_config.json"
+from config import DATA_DIR
+ADMIN_CONFIG_FILE = DATA_DIR / "admin_config.json"
 _ADMIN_CONFIG: Dict[str, Dict[str, Dict[str, object]]] = {}
 
 

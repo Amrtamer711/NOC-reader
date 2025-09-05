@@ -1128,7 +1128,7 @@ async def slack_commands(request: Request):
                          f"```\n\n"
                          f"💡 *Next Steps:*\n"
                          f"1. Copy the above JSON snippet\n"
-                         f"2. Add it to your admin_config.json file\n"
+                         f"2. Add it to your admin_config.json file in /data/\n"
                          f"3. Save the file to enable admin access")
             
             return JSONResponse({
