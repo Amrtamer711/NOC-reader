@@ -1,7 +1,7 @@
 services:
   - type: web
     name: noc-reader-bot
-    runtime: python
+    env: python
     region: singapore
     plan: starter
     buildCommand: pip install -r requirements.txt
@@ -35,7 +35,13 @@ services:
       -H "Authorization: Bearer ${CRON_SECRET}"
       -H "Content-Type: application/json"
     envVars:
-      - fromService:
+      - key: CRON_SECRET
+        fromService:
           type: web
           name: noc-reader-bot
           envVarKey: CRON_SECRET
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: noc-reader-bot
+          envVarKey: RENDER_EXTERNAL_URL
