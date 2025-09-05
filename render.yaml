@@ -28,6 +28,8 @@ services:
 
   - type: cron
     name: noc-expiry-checker
+    env: python
+    region: singapore
     schedule: "0 5 * * *"  # Run daily at 5 AM UTC (9 AM UAE time)
     buildCommand: echo "No build required"
     startCommand: >
