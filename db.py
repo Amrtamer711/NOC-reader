@@ -75,7 +75,8 @@ CREATE INDEX IF NOT EXISTS idx_history_archived_at ON noc_history(archived_at);
 
 def _connect(db_path: Path) -> sqlite3.Connection:
     """Create a connection with proper WAL and concurrency settings."""
-    conn = sqlite3.connect(db_path, timeout=10.0, isolation_level=None)
+    # Use default isolation level to allow explicit transactions
+    conn = sqlite3.connect(db_path, timeout=10.0)
     # Enable WAL mode for better concurrency
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout=10000;")  # 10 second timeout
@@ -92,13 +93,12 @@ def init_db() -> None:
     # Initialize current database
     conn = _connect(CURRENT_DB_PATH)
     try:
-        conn.execute("BEGIN")
         conn.executescript(CURRENT_SCHEMA)
-        conn.execute("COMMIT")
+        conn.commit()
         logger.info("[DB] Current database initialized successfully")
     except Exception as e:
         logger.error(f"[DB] Error initializing current database: {e}")
-        conn.execute("ROLLBACK")
+        conn.rollback()
         raise
     finally:
         conn.close()
@@ -106,13 +106,12 @@ def init_db() -> None:
     # Initialize history database
     conn = _connect(HISTORY_DB_PATH)
     try:
-        conn.execute("BEGIN")
         conn.executescript(HISTORY_SCHEMA)
-        conn.execute("COMMIT")
+        conn.commit()
         logger.info("[DB] History database initialized successfully")
     except Exception as e:
         logger.error(f"[DB] Error initializing history database: {e}")
-        conn.execute("ROLLBACK")
+        conn.rollback()
         raise
     finally:
         conn.close()
@@ -180,12 +179,12 @@ def save_noc_extraction(
             ),
         )
         record_id = cursor.lastrowid
-        conn.execute("COMMIT")
+        conn.commit()
         logger.info(f"[DB] Saved NOC extraction with ID {record_id}")
         return record_id
     except Exception as e:
         logger.error(f"[DB] Error saving NOC extraction: {e}")
-        conn.execute("ROLLBACK")
+        conn.rollback()
         # Clean up document file on failure
         if document_path and document_path.exists():
             try:
@@ -345,13 +344,13 @@ def archive_expired_nocs() -> List[str]:
                 
                 archived.append(noc['noc_number'])
             
-            conn_current.execute("COMMIT")
-            conn_history.execute("COMMIT")
+            conn_current.commit()
+            conn_history.commit()
             logger.info(f"[DB] Archived {len(archived)} expired NOCs")
     except Exception as e:
         logger.error(f"[DB] Error archiving expired NOCs: {e}")
-        conn_current.execute("ROLLBACK")
-        conn_history.execute("ROLLBACK")
+        conn_current.rollback()
+        conn_history.rollback()
     finally:
         conn_current.close()
         conn_history.close()
@@ -427,11 +426,11 @@ def update_last_notified(noc_number: str, notified_date: str) -> bool:
             """,
             (notified_date, noc_number)
         )
-        conn.execute("COMMIT")
+        conn.commit()
         return True
     except Exception as e:
         logger.error(f"[DB] Error updating last notified date: {e}")
-        conn.execute("ROLLBACK")
+        conn.rollback()
         return False
     finally:
         conn.close()
