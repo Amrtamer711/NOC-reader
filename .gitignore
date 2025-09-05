@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Local data
+data/
+*.db
+*.db-shm
+*.db-wal
+noc_data.db
+noc_current.db
+noc_history.db
+current_docs/
+expired_docs/
+
+# Excel files
+*.xlsx
+*.xls
+noc_extractions.xlsx
+
+# Uploads
+uploads/
+
+# Logs
+*.log
+noc_reader_bot.log
+
+# Cache
+noc_notified_cache.json
+
+# Credentials
+routes-key.json
+admin_config.json.local
+
+# Temporary files
+*.tmp
+*.temp
+.~lock.*

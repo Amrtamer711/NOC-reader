@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: noc-reader-bot
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python noc_reader.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PORT
+        value: "3000"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: CRON_SECRET
+        generateValue: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 10
+
+  - type: cron
+    name: noc-expiry-checker
+    schedule: "0 5 * * *"  # Run daily at 5 AM UTC (9 AM UAE time)
+    buildCommand: echo "No build required"
+    startCommand: curl -X POST https://noc-reader-bot.onrender.com/cron/check-expiry -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"
+    envVars:
+      - fromService:
+          type: web
+          name: noc-reader-bot
+          envVarKey: CRON_SECRET
