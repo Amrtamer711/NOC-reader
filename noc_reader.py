@@ -1064,22 +1064,22 @@ async def slack_events(request: Request):
 @api.post('/slack/commands')
 async def slack_commands(request: Request):
     """Handle Slack slash commands."""
+    # Verify the request signature first (like in VideoCritique)
+    body = await request.body()
+    timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
+    signature = request.headers.get('X-Slack-Signature', '')
+    
+    if not signature_verifier.is_valid(body.decode(), timestamp, signature):
+        logger.error(f"[SLASH] Signature verification failed")
+        return JSONResponse({'error': 'Invalid signature'}, status_code=403)
+    
+    # Parse form data after verification
     form_data = await request.form()
     
     # Extract data from form
     command = form_data.get('command', '')
     user_id = form_data.get('user_id', '')
     channel_id = form_data.get('channel_id', '')
-    
-    # Verify request signature
-    timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
-    signature = request.headers.get('X-Slack-Signature', '')
-    
-    # Reconstruct the body from form data for signature verification
-    body_str = "&".join([f"{key}={value}" for key, value in form_data.items()])
-    
-    if not signature_verifier.is_valid(body_str, timestamp, signature):
-        return JSONResponse({'error': 'Invalid signature'}, status_code=403)
     
     if command == "/my_ids":
         try:
