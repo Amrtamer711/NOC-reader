@@ -825,9 +825,9 @@ IMPORTANT:
                     if not username:
                         return "❌ Username is required. Please provide a username."
                     if not slack_user_id:
-                        return "❌ Slack user ID is required. Use /my_ids to get the user ID."
+                        return "❌ Slack user ID is required. Use /ops_my_ids to get the user ID."
                     if not notification_channel:
-                        return "❌ Notification channel is required. Use /my_ids to get the channel ID."
+                        return "❌ Notification channel is required. Use /ops_my_ids to get the channel ID."
                     
                     # Prepare admin data for confirmation
                     admin_data = {
@@ -1081,7 +1081,7 @@ async def slack_commands(request: Request):
     user_id = form_data.get('user_id', '')
     channel_id = form_data.get('channel_id', '')
     
-    if command == "/my_ids":
+    if command == "/ops_my_ids":
         try:
             # Get user info
             user_info = await slack_client.users_info(user=user_id)
