@@ -988,7 +988,9 @@ async def cron_check_expiry(request: Request):
                         logger.error(f"Failed to send archive notification for NOC {noc_number} to any channel")
         
         # Check for NOCs expiring in configured days
+        logger.info(f"[CRON] Checking for NOCs expiring in {config.EXPIRY_NOTIFICATION_DAYS} days")
         expiring = await asyncio.to_thread(db.get_expiring_nocs, config.EXPIRY_NOTIFICATION_DAYS)
+        logger.info(f"[CRON] Found {len(expiring)} NOCs expiring within {config.EXPIRY_NOTIFICATION_DAYS} days")
         notified = []
         
         today_str = datetime.now().date().strftime('%d-%m-%Y')
@@ -1007,7 +1009,11 @@ async def cron_check_expiry(request: Request):
             
             project_name = noc.get('project_name', 'N/A')
             validity_end = noc.get('validity_end_date', '')
-            days_left = (datetime.strptime(validity_end, '%d-%m-%Y').date() - datetime.now().date()).days
+            # Parse date flexibly
+            parts = validity_end.strip().replace('/', '-').split('-')
+            day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+            validity_date = datetime(year, month, day).date()
+            days_left = (validity_date - datetime.now().date()).days
             
             # Create appropriate message based on days left
             if days_left == 0:

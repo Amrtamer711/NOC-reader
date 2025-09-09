@@ -284,11 +284,20 @@ def archive_expired_nocs() -> List[str]:
         expired_nocs = []
         for noc in all_nocs:
             try:
-                validity_date = datetime.strptime(noc['validity_end_date'], '%d-%m-%Y').date()
+                # Handle flexible date formats (9-9-2025 or 09-09-2025)
+                validity_end_str = noc['validity_end_date'].strip()
+                parts = validity_end_str.replace('/', '-').split('-')
+                if len(parts) == 3:
+                    day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                    validity_date = datetime(year, month, day).date()
+                else:
+                    raise ValueError(f"Invalid date format: {validity_end_str}")
+                
                 if validity_date < today:
                     expired_nocs.append(noc)
-            except ValueError:
+            except (ValueError, IndexError) as e:
                 # Skip if date format is invalid
+                logger.warning(f"[DB] Invalid date format for NOC {noc.get('noc_number', 'Unknown')}: {noc.get('validity_end_date', '')} - {e}")
                 continue
         
         if expired_nocs:
@@ -391,20 +400,36 @@ def get_expiring_nocs(days_ahead: int = 14) -> List[Dict[str, Any]]:
             """
         )
         all_nocs = [dict(row) for row in cursor.fetchall()]
+        logger.info(f"[DB] Found {len(all_nocs)} active NOCs to check for expiry")
         
         # Filter NOCs expiring within the specified days
         expiring_nocs = []
         for noc in all_nocs:
             try:
-                validity_date = datetime.strptime(noc['validity_end_date'], '%d-%m-%Y').date()
+                # Handle flexible date formats (9-9-2025 or 09-09-2025)
+                validity_end_str = noc['validity_end_date'].strip()
+                parts = validity_end_str.replace('/', '-').split('-')
+                if len(parts) == 3:
+                    day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                    validity_date = datetime(year, month, day).date()
+                else:
+                    raise ValueError(f"Invalid date format: {validity_end_str}")
+                
                 if today <= validity_date <= future_date:
                     expiring_nocs.append(noc)
-            except ValueError:
+                    logger.info(f"[DB] NOC {noc['noc_number']} expires on {validity_date} (in {(validity_date - today).days} days)")
+            except (ValueError, IndexError) as e:
                 # Skip if date format is invalid
+                logger.warning(f"[DB] Invalid date format for NOC {noc.get('noc_number', 'Unknown')}: {noc.get('validity_end_date', '')} - {e}")
                 continue
         
         # Sort by validity date
-        expiring_nocs.sort(key=lambda x: datetime.strptime(x['validity_end_date'], '%d-%m-%Y'))
+        def parse_date_for_sort(noc):
+            parts = noc['validity_end_date'].strip().replace('/', '-').split('-')
+            day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+            return datetime(year, month, day).date()
+        
+        expiring_nocs.sort(key=parse_date_for_sort)
         return expiring_nocs
     except Exception as e:
         logger.error(f"[DB] Error getting expiring NOCs: {e}")
