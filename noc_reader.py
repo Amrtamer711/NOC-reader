@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import asyncio
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -238,6 +239,60 @@ async def parse_noc_with_ai(file_path: str) -> Dict[str, Any]:
                 logger.warning(f'Failed to delete uploaded file: {cleanup_err}')
 
 # ================= Conversation helpers =================
+def markdown_to_slack(text: str) -> str:
+    """Convert markdown formatting to Slack formatting."""
+    # Bold: **text** or __text__ -> *text*
+    text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
+    text = re.sub(r'__(.+?)__', r'*\1*', text)
+    
+    # Italic: *text* or _text_ -> _text_
+    # First protect already converted bold
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'_\1_', text)
+    
+    # Code blocks: ```code``` -> ```code```
+    # Slack uses the same syntax, so no change needed
+    
+    # Inline code: `code` -> `code`
+    # Slack uses the same syntax, so no change needed
+    
+    # Headers: # Header -> *Header*
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'*\1*', text, flags=re.MULTILINE)
+    
+    # Links: [text](url) -> <url|text>
+    text = re.sub(r'\[(.+?)\]\((.+?)\)', r'<\2|\1>', text)
+    
+    # Strikethrough: ~~text~~ -> ~text~
+    text = re.sub(r'~~(.+?)~~', r'~\1~', text)
+    
+    # Blockquotes: > text -> >>> text (for multiline) or > text (for single line)
+    lines = text.split('\n')
+    in_blockquote = False
+    result = []
+    blockquote_lines = []
+    
+    for line in lines:
+        if line.startswith('> '):
+            blockquote_lines.append(line[2:])
+            in_blockquote = True
+        else:
+            if in_blockquote:
+                if len(blockquote_lines) == 1:
+                    result.append('> ' + blockquote_lines[0])
+                else:
+                    result.append('>>> ' + '\n'.join(blockquote_lines))
+                blockquote_lines = []
+                in_blockquote = False
+            result.append(line)
+    
+    # Handle any remaining blockquote
+    if blockquote_lines:
+        if len(blockquote_lines) == 1:
+            result.append('> ' + blockquote_lines[0])
+        else:
+            result.append('>>> ' + '\n'.join(blockquote_lines))
+    
+    return '\n'.join(result)
+
 def append_to_history(user_id: str, role: str, content: str) -> None:
     if user_id not in user_history:
         user_history[user_id] = []
@@ -618,6 +673,12 @@ async def handle_slack_message(channel: str, user_id: str, text: str, files: Opt
     if files:
         pdf_file = next((f for f in files if (f.get('mimetype') == 'application/pdf' or f.get('name','').lower().endswith('.pdf'))), None)
         if pdf_file:
+            # Check if user is admin before processing PDFs
+            if not permissions.is_admin(user_id):
+                reply = "❌ Sorry, only admins can process NOC documents. Please contact an administrator."
+                await slack_client.chat_postMessage(channel=channel, text=reply)
+                return
+                
             local_path = await download_slack_file(pdf_file)
             if local_path and local_path.lower().endswith('.pdf'):
                 noc_data = await parse_noc_with_ai(local_path)
@@ -741,19 +802,17 @@ IMPORTANT:
                     },
                     "required": ["username", "slack_user_id", "notification_channel"]
                 }
+            },
+            {
+                "type": "function",
+                "name": "get_summary",
+                "description": "Get database summary with statistics",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ])
-    
-    # Add general tools
-    tools.append({
-        "type": "function",
-        "name": "get_summary",
-        "description": "Get database summary with statistics",
-        "parameters": {
-            "type": "object",
-            "properties": {}
-        }
-    })
     
     try:
         res = await client.responses.create(
