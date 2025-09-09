@@ -285,7 +285,7 @@ def archive_expired_nocs() -> List[str]:
         for noc in all_nocs:
             try:
                 validity_date = datetime.strptime(noc['validity_end_date'], '%d-%m-%Y').date()
-                if validity_date < today:
+                if validity_date <= today:
                     expired_nocs.append(noc)
             except ValueError:
                 # Skip if date format is invalid
@@ -442,10 +442,11 @@ def export_to_excel() -> str:
     import tempfile
     from datetime import datetime
     
-    conn = _connect(CURRENT_DB_PATH)
+    conn_current = _connect(CURRENT_DB_PATH)
+    conn_history = _connect(HISTORY_DB_PATH)
     try:
-        # Read all extractions into a DataFrame
-        df = pd.read_sql_query(
+        # Read current NOC extractions
+        df_current = pd.read_sql_query(
             """
             SELECT 
                 id as ID,
@@ -456,12 +457,37 @@ def export_to_excel() -> str:
                 noc_type as "NOC Type",
                 validity_end_date as "Validity End Date",
                 comments as Comments,
-                submitted_by as "Submitted By"
+                submitted_by as "Submitted By",
+                'Active' as Status
             FROM noc_extractions 
             ORDER BY timestamp DESC
             """,
-            conn
+            conn_current
         )
+        
+        # Read expired NOC extractions from history
+        df_expired = pd.read_sql_query(
+            """
+            SELECT 
+                original_id as ID,
+                timestamp as Timestamp,
+                noc_number as "NOC Number",
+                project_name as "Project Name",
+                issue_date as "Issue Date",
+                noc_type as "NOC Type",
+                validity_end_date as "Validity End Date",
+                comments as Comments,
+                submitted_by as "Submitted By",
+                'Expired' as Status
+            FROM noc_history 
+            ORDER BY timestamp DESC
+            """,
+            conn_history
+        )
+        
+        # Combine both dataframes
+        df = pd.concat([df_current, df_expired], ignore_index=True)
+        df = df.sort_values('Timestamp', ascending=False)
         
         # Create a temporary Excel file
         temp_file = tempfile.NamedTemporaryFile(
@@ -472,35 +498,44 @@ def export_to_excel() -> str:
         
         # Write to Excel with formatting
         with pd.ExcelWriter(temp_file.name, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='NOC Extractions', index=False)
+            # Write all data to first sheet
+            df.to_excel(writer, sheet_name='All NOCs', index=False)
             
-            # Get the workbook and worksheet
+            # Write current NOCs to second sheet
+            df_current.to_excel(writer, sheet_name='Active NOCs', index=False)
+            
+            # Write expired NOCs to third sheet
+            df_expired.to_excel(writer, sheet_name='Expired NOCs', index=False)
+            
+            # Format all sheets
             workbook = writer.book
-            worksheet = writer.sheets['NOC Extractions']
-            
-            # Auto-adjust column widths
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
-            
-            # Add filters
-            worksheet.auto_filter.ref = worksheet.dimensions
-            
-            # Format header row
             from openpyxl.styles import Font, PatternFill
             header_font = Font(bold=True)
             header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
-            for cell in worksheet[1]:
-                cell.font = header_font
-                cell.fill = header_fill
+            
+            for sheet_name in ['All NOCs', 'Active NOCs', 'Expired NOCs']:
+                worksheet = writer.sheets[sheet_name]
+                
+                # Auto-adjust column widths
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+                
+                # Add filters
+                worksheet.auto_filter.ref = worksheet.dimensions
+                
+                # Format header row
+                for cell in worksheet[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
         
         logger.info(f"[DB] Exported {len(df)} records to {temp_file.name}")
         return temp_file.name
@@ -509,7 +544,8 @@ def export_to_excel() -> str:
         logger.error(f"[DB] Error exporting to Excel: {e}")
         raise
     finally:
-        conn.close()
+        conn_current.close()
+        conn_history.close()
 
 
 def get_noc_summary() -> Dict[str, Any]:
