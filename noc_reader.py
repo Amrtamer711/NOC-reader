@@ -1009,11 +1009,24 @@ async def cron_check_expiry(request: Request):
             validity_end = noc.get('validity_end_date', '')
             days_left = (datetime.strptime(validity_end, '%d-%m-%Y').date() - datetime.now().date()).days
             
-            msg = (
-                f"⚠️ *NOC Expiring Soon*\n"
-                f"NOC `{noc_number}` for project `{project_name}` expires in *{days_left} days* "
-                f"(on {validity_end})."
-            )
+            # Create appropriate message based on days left
+            if days_left == 0:
+                msg = (
+                    f"🚨 *NOC EXPIRES TODAY*\n"
+                    f"NOC `{noc_number}` for project `{project_name}` expires *TODAY* ({validity_end}).\n"
+                    f"This NOC will be archived tomorrow."
+                )
+            elif days_left == 1:
+                msg = (
+                    f"⚠️ *NOC Expiring Tomorrow*\n"
+                    f"NOC `{noc_number}` for project `{project_name}` expires *tomorrow* ({validity_end})."
+                )
+            else:
+                msg = (
+                    f"⚠️ *NOC Expiring Soon*\n"
+                    f"NOC `{noc_number}` for project `{project_name}` expires in *{days_left} days* "
+                    f"(on {validity_end})."
+                )
             
             # Get document
             doc_result = await asyncio.to_thread(db.get_noc_document, noc_number)

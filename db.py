@@ -285,7 +285,7 @@ def archive_expired_nocs() -> List[str]:
         for noc in all_nocs:
             try:
                 validity_date = datetime.strptime(noc['validity_end_date'], '%d-%m-%Y').date()
-                if validity_date <= today:
+                if validity_date < today:
                     expired_nocs.append(noc)
             except ValueError:
                 # Skip if date format is invalid
