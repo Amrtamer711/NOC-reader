@@ -993,8 +993,6 @@ async def cron_check_expiry(request: Request):
         logger.info(f"[CRON] Found {len(expiring)} NOCs expiring within {config.EXPIRY_NOTIFICATION_DAYS} days")
         notified = []
         
-        today_str = datetime.now().date().strftime('%d-%m-%Y')
-        
         # Reload admin config to get latest channels
         permissions.load_admin_config()
         admin_channels = permissions.get_admin_notification_channels()
@@ -1006,14 +1004,10 @@ async def cron_check_expiry(request: Request):
         
         for noc in expiring:
             noc_number = noc.get('noc_number', '')
-            last_notified = noc.get('last_notified_date', '')
             
-            logger.info(f"[CRON] Processing NOC {noc_number}, last notified: {last_notified}, today: {today_str}")
+            logger.info(f"[CRON] Processing NOC {noc_number}")
             
-            # Only notify once per day
-            if last_notified == today_str:
-                logger.info(f"[CRON] Skipping NOC {noc_number} - already notified today")
-                continue
+            # Always notify - removed the once per day check
             
             project_name = noc.get('project_name', 'N/A')
             validity_end = noc.get('validity_end_date', '')
@@ -1061,9 +1055,8 @@ async def cron_check_expiry(request: Request):
                 except Exception as e:
                     logger.error(f'Failed to send expiry notification to {channel}: {e}')
             
-            # Update last notified date only if we sent at least one notification
+            # Check if notification was sent
             if notification_sent:
-                await asyncio.to_thread(db.update_last_notified, noc_number, today_str)
                 notified.append(noc_number)
                 logger.info(f"[CRON] Successfully notified admins about NOC {noc_number}")
             else:
